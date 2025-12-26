@@ -22,19 +22,25 @@ const getApiUrl = (): string => {
   return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
 }
 
-// Create client dynamically on each access to ensure we always use current origin
-// This is important for Vercel deployments where the origin changes
-// The client is created fresh each time a property is accessed (in browser context)
+// Cache the client instance but create it lazily at runtime
+// This ensures window.location.origin is available when the client is first accessed
+let clientInstance: ReturnType<typeof treaty<App>>['api'] | null = null
+
+const getClient = (): ReturnType<typeof treaty<App>>['api'] => {
+  if (!clientInstance) {
+    // Create client at runtime - this will use window.location.origin in browser
+    // Only runs when first accessed (not at module load time)
+    const apiUrl = getApiUrl()
+    clientInstance = treaty<App>(apiUrl).api
+  }
+  return clientInstance
+}
+
+// Use a Proxy to ensure client is created lazily on first property access
+// This maintains Eden Treaty's route structure while ensuring runtime URL resolution
 export const client = new Proxy({} as ReturnType<typeof treaty<App>>['api'], {
   get(_target, prop) {
-    // Always get fresh URL at runtime - this ensures window.location.origin is current
-    const apiUrl = getApiUrl()
-    const freshClient = treaty<App>(apiUrl).api
-    const value = (freshClient as Record<string | symbol, unknown>)[prop]
-    // If it's a function, bind it to maintain 'this' context
-    if (typeof value === 'function') {
-      return value.bind(freshClient)
-    }
-    return value
+    const client = getClient()
+    return (client as Record<string | symbol, unknown>)[prop]
   }
 })
